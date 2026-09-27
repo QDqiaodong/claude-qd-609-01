@@ -149,6 +149,63 @@ public final class RangeDict {
             "CLEARED", "两项复核均通过",
             "RELEASE", "复射放行");
 
+    // ---------------- 团体淘汰赛 ----------------
+    /** 参赛队数只能是 4 或 8 */
+    public static final List<Integer> TOURNAMENT_TEAM_SIZES = List.of(4, 8);
+
+    /** 每场最多局数、每人每局最多箭数 */
+    public static final int MAX_GAMES_PER_MATCH = 12;
+    public static final int MAX_ARROWS_PER_MEMBER = 6;
+
+    /** 每队固定三名队员 */
+    public static final int MEMBERS_PER_TEAM = 3;
+
+    private static final Map<String, String> TOURNAMENT_STATUS = Map.of(
+            "SETUP", "筹备中",
+            "ONGOING", "进行中",
+            "FINISHED", "已结束");
+
+    private static final Map<String, String> MATCH_STATUS = Map.of(
+            "PENDING", "待开赛",
+            "LIVE", "比赛中",
+            "FINISHED", "已结束");
+
+    private static final Map<String, String> GAME_STATUS = Map.of(
+            "ENTERING", "录入中",
+            "CONFIRMED", "已确认");
+
+    private static final Map<String, String> PLAYOFF_STATUS = Map.of(
+            "ENTERING", "加赛录入中",
+            "TIED", "仍平分，继续加赛",
+            "DECIDED", "已分出胜负");
+
+    private static final Map<String, String> WIN_MODE = Map.of(
+            "REGULATION", "局分取胜",
+            "PLAYOFF", "加赛取胜");
+
+    /** 赛事角色：值班经理 / 裁判 / 普通会员 */
+    private static final Map<String, String> TOURNAMENT_ROLE = Map.of(
+            "MANAGER", "值班经理",
+            "REFEREE", "裁判",
+            "MEMBER", "普通会员");
+
+    private static final Map<String, String> TOURNAMENT_ACTION = Map.ofEntries(
+            Map.entry("CREATE", "建立赛事"),
+            Map.entry("CREATE_TEAM", "建立队伍"),
+            Map.entry("UPDATE_TEAM", "调整队伍"),
+            Map.entry("REMOVE_TEAM", "删除队伍"),
+            Map.entry("START_TOURNAMENT", "开赛"),
+            Map.entry("START_MATCH", "开赛场次"),
+            Map.entry("SAVE_GAME", "录入局分"),
+            Map.entry("CONFIRM_GAME", "确认局"),
+            Map.entry("WITHDRAW_GAME", "撤回最后一局"),
+            Map.entry("START_PLAYOFF", "进入加赛"),
+            Map.entry("SAVE_PLAYOFF", "录入加赛箭"),
+            Map.entry("CONFIRM_PLAYOFF", "确认加赛轮"),
+            Map.entry("CONFIRM_WINNER", "确认胜者"),
+            Map.entry("ADVANCE", "自动晋级"),
+            Map.entry("CHAMPION", "决出冠军"));
+
     // ---------------- 取值方法 ----------------
 
     public static boolean isValidDistance(Integer distance) {
@@ -288,5 +345,43 @@ public final class RangeDict {
 
     public static String safetyActionName(String action) {
         return action == null ? "" : SAFETY_ACTION.getOrDefault(action, action);
+    }
+
+    // ---------------- 团体淘汰赛取值 ----------------
+
+    public static boolean isValidTeamSize(Integer teamSize) {
+        return teamSize != null && TOURNAMENT_TEAM_SIZES.contains(teamSize);
+    }
+
+    public static String tournamentStatusName(String status) {
+        return status == null ? "" : TOURNAMENT_STATUS.getOrDefault(status, status);
+    }
+
+    public static String matchStatusName(String status) {
+        return status == null ? "" : MATCH_STATUS.getOrDefault(status, status);
+    }
+
+    public static String gameStatusName(String status) {
+        return status == null ? "" : GAME_STATUS.getOrDefault(status, status);
+    }
+
+    public static String playoffStatusName(String status) {
+        return status == null ? "" : PLAYOFF_STATUS.getOrDefault(status, status);
+    }
+
+    public static String winModeName(String mode) {
+        return mode == null ? "" : WIN_MODE.getOrDefault(mode, mode);
+    }
+
+    public static boolean isValidTournamentRole(String role) {
+        return role != null && TOURNAMENT_ROLE.containsKey(role);
+    }
+
+    public static String tournamentRoleName(String role) {
+        return role == null ? "" : TOURNAMENT_ROLE.getOrDefault(role, role);
+    }
+
+    public static String tournamentActionName(String action) {
+        return action == null ? "" : TOURNAMENT_ACTION.getOrDefault(action, action);
     }
 }

@@ -89,6 +89,28 @@ export const statsApi = {
   board: () => http.get('/stats/board')
 }
 
+/** 模块七：馆内团体淘汰赛（服务端维护对阵树/晋级/加赛，前端不拼接） */
+export const tournamentApi = {
+  memberOptions: () => http.get('/tournaments/members/options'),
+  list: () => http.get('/tournaments'),
+  detail: (id) => http.get(`/tournaments/${id}`),
+  bracket: (id) => http.get(`/tournaments/${id}/bracket`),
+  create: (data) => http.post('/tournaments', data),
+  upsertTeam: (id, data) => http.post(`/tournaments/${id}/teams`, data),
+  removeTeam: (id, slotNo, data) => http.delete(`/tournaments/${id}/teams/${slotNo}`, { data }),
+  start: (id, data) => http.post(`/tournaments/${id}/start`, data),
+  match: (matchId) => http.get(`/tournaments/matches/${matchId}`),
+  startMatch: (matchId, data) => http.post(`/tournaments/matches/${matchId}/start`, data),
+  createGame: (matchId, data) => http.post(`/tournaments/matches/${matchId}/games`, data),
+  withdrawLast: (matchId, data) => http.post(`/tournaments/matches/${matchId}/withdraw-last`, data),
+  confirmWinner: (matchId, data) => http.post(`/tournaments/matches/${matchId}/confirm-winner`, data),
+  startPlayoff: (matchId, data) => http.post(`/tournaments/matches/${matchId}/playoffs`, data),
+  shootGame: (gameId, data) => http.post(`/tournaments/games/${gameId}/arrows`, data),
+  confirmGame: (gameId, data) => http.post(`/tournaments/games/${gameId}/confirm`, data),
+  shootPlayoff: (playoffRoundId, data) => http.post(`/tournaments/playoffs/${playoffRoundId}/arrows`, data),
+  confirmPlayoff: (playoffRoundId, data) => http.post(`/tournaments/playoffs/${playoffRoundId}/confirm`, data)
+}
+
 /** 时间小工具：后端 DATETIME 出来是 "yyyy-MM-dd HH:mm:ss" */
 export const shortTime = (value) => (value ? String(value).slice(5, 16) : '')
 

@@ -450,3 +450,195 @@ INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `statu
 INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `status`, `renter_id`, `renter_name`, `rented_at`) VALUES (10, 'E-GR-02', 'GEAR', 'Cartel', 15.00, 'RENTED', 5, '周然', '2026-09-22 15:45:00');
 INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `status`, `renter_id`, `renter_name`, `rented_at`) VALUES (11, 'E-AR-01', 'ARROW', 'Easton', 20.00, 'INSTOCK', NULL, NULL, NULL);
 INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `status`, `renter_id`, `renter_name`, `rented_at`) VALUES (12, 'E-AR-02', 'ARROW', 'Gold Tip', 18.00, 'INSTOCK', NULL, NULL, NULL);
+
+-- ================= 馆内团体淘汰赛计分台 =================
+-- 设计要点：
+--   1. 赛事一旦 STARTED，队伍与对阵全部冻结，后续轮次的队伍由 winner_team_id 自动带入，不依赖前端拼接。
+--   2. 局（game）确认后只读；改错只能由裁判撤回【当前未结束比赛的最后一局】，撤回动作与原因进 tournament_log。
+--   3. 平分走加赛：每轮每名队员 1 支，先比加赛总分、再比 X 数，仍平继续下一轮，直到唯一胜者。
+--   4. 所有对阵关系、局分、加赛箭、轨迹全部落库，刷新或服务重启不丢。
+
+-- 先补足会员到 24 人（8 队 x 3 人需要 24 名不同会员）
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (13, 'AR-2025-0013', '罗一飞', '13800010013', 'GOLD', 3890.00, '2025-06-08', 11800.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (14, 'AR-2025-0014', '韩雪', '13800010014', 'SILVER', 760.00, '2025-06-19', 2600.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (15, 'AR-2025-0015', '邓超', '13800010015', 'NORMAL', 210.00, '2025-07-02', 360.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (16, 'AR-2025-0016', '曹颖', '13800010016', 'GOLD', 5120.00, '2025-07-25', 18900.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (17, 'AR-2025-0017', '彭于', '13800010017', 'NORMAL', 90.00, '2025-08-03', 150.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (18, 'AR-2025-0018', '曾黎', '13800010018', 'SILVER', 1430.00, '2025-08-16', 4600.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (19, 'AR-2025-0019', '肖战', '13800010019', 'NORMAL', 300.00, '2025-09-01', 480.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (20, 'AR-2025-0020', '田雨', '13800010020', 'GOLD', 2780.00, '2025-09-09', 9900.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (21, 'AR-2025-0021', '董洁', '13800010021', 'SILVER', 640.00, '2025-09-12', 2200.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (22, 'AR-2025-0022', '范冰', '13800010022', 'NORMAL', 180.00, '2025-09-15', 300.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (23, 'AR-2025-0023', '夏雨', '13800010023', 'GOLD', 4560.00, '2025-09-18', 16700.00);
+INSERT INTO members (`id`, `card_no`, `name`, `phone`, `level`, `balance`, `register_date`, `total_spend`) VALUES (24, 'AR-2025-0024', '沈腾', '13800010024', 'NORMAL', 260.00, '2025-09-20', 420.00);
+
+CREATE TABLE IF NOT EXISTS tournaments (
+  id                     BIGINT       NOT NULL AUTO_INCREMENT,
+  tournament_no          VARCHAR(24)  NOT NULL COMMENT '赛事编号',
+  name                   VARCHAR(64)  NOT NULL COMMENT '赛事名称',
+  status                 VARCHAR(16)  NOT NULL COMMENT 'SETUP 筹备中 / ONGOING 进行中 / FINISHED 已结束',
+  team_size              INT          NOT NULL COMMENT '参赛队数：4 或 8',
+  games_per_match        INT          NOT NULL COMMENT '每场局数',
+  arrows_per_member      INT          NOT NULL COMMENT '每局每名队员规定箭数',
+  current_round          INT          NOT NULL DEFAULT 1 COMMENT '当前轮次（1 起）',
+  total_rounds           INT          NOT NULL COMMENT '总轮次：4队=2，8队=3',
+  champion_team_id       BIGINT       NULL COMMENT '冠军队',
+  created_by             VARCHAR(32)  NOT NULL COMMENT '创建赛事的值班经理',
+  created_at             DATETIME     NOT NULL,
+  started_at             DATETIME     NULL,
+  finished_at            DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tournament_no (tournament_no),
+  KEY idx_tournament_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tournament_team (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  tournament_id BIGINT       NOT NULL,
+  slot_no       INT          NOT NULL COMMENT '队在赛事中的签位（1..team_size）',
+  team_name     VARCHAR(48)  NOT NULL,
+  created_at    DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_team_tournament_slot (tournament_id, slot_no),
+  UNIQUE KEY uk_team_tournament_name (tournament_id, team_name),
+  CONSTRAINT fk_team_tournament FOREIGN KEY (tournament_id) REFERENCES tournaments (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 队-会员：同一会员在同一赛事里只能出现在一支队伍（uk_team_member_tournament_member 兜底）
+CREATE TABLE IF NOT EXISTS tournament_team_member (
+  id            BIGINT      NOT NULL AUTO_INCREMENT,
+  tournament_id BIGINT      NOT NULL COMMENT '冗余赛事列，支撑同赛事会员唯一约束',
+  team_id       BIGINT      NOT NULL,
+  member_id     BIGINT      NOT NULL,
+  seat_no       INT         NOT NULL COMMENT '队内座次 1/2/3',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_team_member_tournament_member (tournament_id, member_id),
+  UNIQUE KEY uk_team_member_team_seat (team_id, seat_no),
+  KEY idx_tm_member (member_id),
+  CONSTRAINT fk_tm_tournament FOREIGN KEY (tournament_id) REFERENCES tournaments (id),
+  CONSTRAINT fk_tm_team FOREIGN KEY (team_id) REFERENCES tournament_team (id),
+  CONSTRAINT fk_tm_member FOREIGN KEY (member_id) REFERENCES members (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 对阵：slot 形如 101/102（第一轮）、201（第二轮）、301（决赛）。
+-- 后续轮次的 team_a_id/team_b_id 在前序比赛确认胜者时由服务端写入，前端不能拼。
+CREATE TABLE IF NOT EXISTS tournament_match (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  tournament_id    BIGINT       NOT NULL,
+  slot_no          INT          NOT NULL COMMENT '场次槽位：轮次*100+轮内序号',
+  round_no         INT          NOT NULL COMMENT '第几轮',
+  source_slot_a    INT          NULL COMMENT 'A 队来源场次（首轮为空，直接挂签位队）',
+  source_slot_b    INT          NULL COMMENT 'B 队来源场次',
+  team_a_id        BIGINT       NULL,
+  team_b_id        BIGINT       NULL,
+  team_a_seed      INT          NULL COMMENT '首轮 A 队签位',
+  team_b_seed      INT          NULL COMMENT '首轮 B 队签位',
+  status           VARCHAR(16)  NOT NULL COMMENT 'PENDING 待开赛场次 / LIVE 比赛中 / FINISHED 已结束',
+  winner_team_id   BIGINT       NULL,
+  win_mode         VARCHAR(16)  NULL COMMENT 'REGULATION 局分取胜 / PLAYOFF 加赛取胜',
+  reg_score_a      INT          NOT NULL DEFAULT 0 COMMENT '正规局总分 A',
+  reg_score_b      INT          NOT NULL DEFAULT 0 COMMENT '正规局总分 B',
+  reg_x_a          INT          NOT NULL DEFAULT 0 COMMENT '正规局 X 数 A',
+  reg_x_b          INT          NOT NULL DEFAULT 0 COMMENT '正规局 X 数 B',
+  started_at       DATETIME     NULL,
+  finished_at      DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_match_tournament_slot (tournament_id, slot_no),
+  KEY idx_match_round (tournament_id, round_no),
+  CONSTRAINT fk_match_tournament FOREIGN KEY (tournament_id) REFERENCES tournaments (id),
+  CONSTRAINT fk_match_team_a FOREIGN KEY (team_a_id) REFERENCES tournament_team (id),
+  CONSTRAINT fk_match_team_b FOREIGN KEY (team_b_id) REFERENCES tournament_team (id),
+  CONSTRAINT fk_match_winner FOREIGN KEY (winner_team_id) REFERENCES tournament_team (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tournament_game (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  match_id      BIGINT       NOT NULL,
+  game_no       INT          NOT NULL COMMENT '局号（1 起，顺序即比赛顺序）',
+  status        VARCHAR(16)  NOT NULL COMMENT 'ENTERING 录入中 / CONFIRMED 已确认',
+  score_a       INT          NOT NULL DEFAULT 0,
+  score_b       INT          NOT NULL DEFAULT 0,
+  x_a           INT          NOT NULL DEFAULT 0,
+  x_b           INT          NOT NULL DEFAULT 0,
+  created_by    VARCHAR(32)  NULL,
+  confirmed_by  VARCHAR(32)  NULL,
+  created_at    DATETIME     NOT NULL,
+  confirmed_at  DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_game_match_no (match_id, game_no),
+  CONSTRAINT fk_game_match FOREIGN KEY (match_id) REFERENCES tournament_match (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 淘汰赛专用箭支（口径沿用 X/10..1/M；与日常计分的 arrow_score 独立）。
+-- 叶子除环数外带上 member_id / team_id，箭属于哪支队伍、哪位队员随箭落库；
+-- 局 / 加赛轮到箭的有序关系走 join 表（@JoinTable + @OrderColumn），与日常 round_arrow 同款。
+CREATE TABLE IF NOT EXISTS tournament_arrow (
+  id         BIGINT      NOT NULL AUTO_INCREMENT,
+  ring       VARCHAR(4)  NOT NULL,
+  ring_value INT         NOT NULL,
+  member_id  BIGINT      NULL,
+  team_id    BIGINT      NULL,
+  PRIMARY KEY (id),
+  KEY idx_ta_member (member_id),
+  CONSTRAINT fk_ta_member FOREIGN KEY (member_id) REFERENCES members (id),
+  CONSTRAINT fk_ta_team FOREIGN KEY (team_id) REFERENCES tournament_team (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 局-箭 有序集合连接表：shot_index 由 Hibernate 的 @OrderColumn 维护（箭序 0 起）
+CREATE TABLE IF NOT EXISTS tournament_game_arrow (
+  game_id    BIGINT NOT NULL,
+  arrow_id   BIGINT NOT NULL,
+  shot_index INT    NOT NULL,
+  PRIMARY KEY (game_id, shot_index),
+  UNIQUE KEY uk_game_arrow_arrow (arrow_id),
+  CONSTRAINT fk_ga_game FOREIGN KEY (game_id) REFERENCES tournament_game (id),
+  CONSTRAINT fk_ga_arrow FOREIGN KEY (arrow_id) REFERENCES tournament_arrow (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 加赛轮：每轮每队三名队员各射一支（共 6 支）
+CREATE TABLE IF NOT EXISTS tournament_playoff_round (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  match_id      BIGINT       NOT NULL,
+  round_no      INT          NOT NULL COMMENT '加赛第几轮（1 起）',
+  status        VARCHAR(16)  NOT NULL COMMENT 'ENTERING 录入中 / TIED 仍平分 / DECIDED 已分出胜负',
+  score_a       INT          NOT NULL DEFAULT 0,
+  score_b       INT          NOT NULL DEFAULT 0,
+  x_a           INT          NOT NULL DEFAULT 0,
+  x_b           INT          NOT NULL DEFAULT 0,
+  winner_team_id BIGINT      NULL,
+  created_by    VARCHAR(32)  NULL,
+  confirmed_by  VARCHAR(32)  NULL,
+  created_at    DATETIME     NOT NULL,
+  decided_at    DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_playoff_match_round (match_id, round_no),
+  CONSTRAINT fk_pr_match FOREIGN KEY (match_id) REFERENCES tournament_match (id),
+  CONSTRAINT fk_pr_winner FOREIGN KEY (winner_team_id) REFERENCES tournament_team (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 加赛箭有序集合连接表：每名队员每轮只有一支（uk_pa_round_member 兜底）
+CREATE TABLE IF NOT EXISTS tournament_playoff_arrow (
+  playoff_round_id BIGINT NOT NULL,
+  arrow_id         BIGINT NOT NULL,
+  shot_index       INT    NOT NULL,
+  PRIMARY KEY (playoff_round_id, shot_index),
+  UNIQUE KEY uk_pa_arrow (arrow_id),
+  CONSTRAINT fk_pa_round FOREIGN KEY (playoff_round_id) REFERENCES tournament_playoff_round (id),
+  CONSTRAINT fk_pa_arrow FOREIGN KEY (arrow_id) REFERENCES tournament_arrow (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 完整操作轨迹：建队/换队/开赛/开赛轮/记局/确认局/撤回局/加赛/确认胜者/晋级/夺冠
+CREATE TABLE IF NOT EXISTS tournament_log (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  tournament_id BIGINT       NOT NULL,
+  match_id      BIGINT       NULL,
+  action        VARCHAR(24)  NOT NULL,
+  operator      VARCHAR(32)  NOT NULL COMMENT '操作人（撤回人也在此）',
+  role          VARCHAR(16)  NOT NULL COMMENT 'MANAGER / REFEREE / SYSTEM',
+  detail        VARCHAR(500) NULL,
+  created_at    DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_tlog_tournament (tournament_id),
+  KEY idx_tlog_match (match_id),
+  CONSTRAINT fk_tlog_tournament FOREIGN KEY (tournament_id) REFERENCES tournaments (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
