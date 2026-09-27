@@ -18,6 +18,7 @@ import com.archery.range.repository.LaneRepository;
 import com.archery.range.repository.MemberRepository;
 import com.archery.range.repository.RoundRepository;
 import com.archery.range.repository.SafetyEventRepository;
+import com.archery.range.repository.TournamentRepository;
 
 /**
  * 看板：各模块计数器 + 成绩榜。全部走派生查询，结果在内存里排序取值。
@@ -32,6 +33,7 @@ public class StatsService {
     private final CourseRepository courseRepository;
     private final EquipmentRepository equipmentRepository;
     private final SafetyEventRepository safetyEventRepository;
+    private final TournamentRepository tournamentRepository;
     private final RoundService roundService;
 
     public StatsService(LaneRepository laneRepository,
@@ -41,6 +43,7 @@ public class StatsService {
             CourseRepository courseRepository,
             EquipmentRepository equipmentRepository,
             SafetyEventRepository safetyEventRepository,
+            TournamentRepository tournamentRepository,
             RoundService roundService) {
         this.laneRepository = laneRepository;
         this.memberRepository = memberRepository;
@@ -49,6 +52,7 @@ public class StatsService {
         this.courseRepository = courseRepository;
         this.equipmentRepository = equipmentRepository;
         this.safetyEventRepository = safetyEventRepository;
+        this.tournamentRepository = tournamentRepository;
         this.roundService = roundService;
     }
 
@@ -69,6 +73,8 @@ public class StatsService {
         counters.put("equipTotal", equipmentRepository.count());
         counters.put("equipRented", equipmentRepository.findByStatusOrderByEquipCodeAsc("RENTED").size());
         counters.put("safetyActive", safetyEventRepository.countByStatusNot("RELEASED"));
+        counters.put("tournamentTotal", tournamentRepository.count());
+        counters.put("tournamentOngoing", tournamentRepository.countByStatus("ONGOING"));
 
         List<RoundDtos.RoundView> top = roundRepository.findByStatusOrderByStartTimeDesc("SUBMITTED").stream()
                 .sorted(Comparator.comparingInt((com.archery.range.domain.Round r) ->

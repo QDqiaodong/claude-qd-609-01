@@ -63,8 +63,11 @@ public final class RangeDict {
             Map.entry("1", 1),
             Map.entry("M", 0));
 
-    /** 计分键盘上出现的环数键 */
+    /** 计分键盘上出现的环数键（日常计分组用精简键盘） */
     public static final List<String> KEYPAD_RINGS = List.of("X", "10", "9", "8", "7", "6", "M");
+
+    /** 团体淘汰赛计分局用完整环数口径：X、10 至 1、M */
+    public static final List<String> ALL_RINGS = List.of("X", "10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "M");
 
     /** 一组箭支数只能是 6 支或 12 支 */
     public static final List<Integer> GROUP_SIZES = List.of(6, 12);
@@ -148,6 +151,68 @@ public final class RangeDict {
             "BACK_PENDING", "退回待处置",
             "CLEARED", "两项复核均通过",
             "RELEASE", "复射放行");
+
+    // ---------------- 团体淘汰赛 ----------------
+    /** 参赛队数只能是 4 或 8（对应两轮或三轮单淘汰） */
+    public static final List<Integer> TEAM_SIZES = List.of(4, 8);
+
+    /** 每队固定三名会员 */
+    public static final int MEMBERS_PER_TEAM = 3;
+
+    /** 每场局数允许范围（至少 1 局） */
+    public static final List<Integer> ENDS_PER_MATCH = List.of(1, 2, 3, 4, 5, 6);
+
+    /** 每名队员每局规定箭数允许范围 */
+    public static final List<Integer> ARROWS_PER_END = List.of(1, 2, 3);
+
+    /** 赛事状态 */
+    private static final Map<String, String> TOURNAMENT_STATUS = Map.of(
+            "DRAFT", "报名中",
+            "ONGOING", "进行中",
+            "FINISHED", "已完赛");
+
+    /** 场次状态 */
+    private static final Map<String, String> MATCH_STATUS = Map.of(
+            "PENDING", "待开赛",
+            "ONGOING", "进行中",
+            "AWAIT_CONFIRM", "待确认胜者",
+            "CONFIRMED", "已确认");
+
+    /** 场次阶段 */
+    private static final Map<String, String> MATCH_STAGE = Map.of(
+            "REGULATION", "规定局",
+            "SHOOTOFF", "加赛箭");
+
+    /** 淘汰赛角色 */
+    private static final Map<String, String> TOURNAMENT_ROLE = Map.of(
+            "MANAGER", "值班经理",
+            "REFEREE", "裁判",
+            "MEMBER", "普通会员",
+            "SYSTEM", "计分系统");
+
+    /** 赛事操作轨迹动作 */
+    private static final Map<String, String> TOURNAMENT_ACTION = Map.ofEntries(
+            Map.entry("CREATE", "建立赛事"),
+            Map.entry("ADD_TEAM", "新增参赛队"),
+            Map.entry("UPDATE_TEAM", "调整参赛队"),
+            Map.entry("REMOVE_TEAM", "移除参赛队"),
+            Map.entry("START", "开赛并生成对阵"),
+            Map.entry("CONFIRM_END", "确认局成绩"),
+            Map.entry("RETRACT_END", "撤回最后一局"),
+            Map.entry("ENTER_SHOOTOFF", "进入加赛箭"),
+            Map.entry("LOCK_SHOOTOFF", "锁定加赛轮"),
+            Map.entry("CONTINUE_SHOOTOFF", "加赛仍平，继续下一轮"),
+            Map.entry("CONFIRM_WINNER", "确认胜者"),
+            Map.entry("ADVANCE_AUTO", "自动带入晋级队"));
+
+    /** 各队数对应的轮次名称 */
+    public static String roundName(int teamSize, int roundNo) {
+        int totalRounds = teamSize == 4 ? 2 : 3;
+        if (roundNo < totalRounds) {
+            return roundNo == 1 ? "首轮" : (roundNo == 2 ? "半决赛" : "第" + roundNo + "轮");
+        }
+        return "决赛";
+    }
 
     // ---------------- 取值方法 ----------------
 
@@ -288,5 +353,39 @@ public final class RangeDict {
 
     public static String safetyActionName(String action) {
         return action == null ? "" : SAFETY_ACTION.getOrDefault(action, action);
+    }
+
+    // ---------------- 团体淘汰赛取值 ----------------
+
+    public static boolean isValidTeamSize(Integer teamSize) {
+        return teamSize != null && TEAM_SIZES.contains(teamSize);
+    }
+
+    public static boolean isValidEndsPerMatch(Integer ends) {
+        return ends != null && ENDS_PER_MATCH.contains(ends);
+    }
+
+    public static boolean isValidArrowsPerEnd(Integer arrows) {
+        return arrows != null && ARROWS_PER_END.contains(arrows);
+    }
+
+    public static String tournamentStatusName(String status) {
+        return status == null ? "" : TOURNAMENT_STATUS.getOrDefault(status, status);
+    }
+
+    public static String matchStatusName(String status) {
+        return status == null ? "" : MATCH_STATUS.getOrDefault(status, status);
+    }
+
+    public static String matchStageName(String stage) {
+        return stage == null ? "" : MATCH_STAGE.getOrDefault(stage, stage);
+    }
+
+    public static String tournamentRoleName(String role) {
+        return role == null ? "" : TOURNAMENT_ROLE.getOrDefault(role, role);
+    }
+
+    public static String tournamentActionName(String action) {
+        return action == null ? "" : TOURNAMENT_ACTION.getOrDefault(action, action);
     }
 }

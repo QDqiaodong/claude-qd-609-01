@@ -85,6 +85,25 @@ export const safetyApi = {
   release: (id, operator) => http.post(`/safety/events/${id}/release`, { operator })
 }
 
+/** 模块七：馆内团体淘汰赛计分台（独立的一套计分台） */
+export const tournamentApi = {
+  options: () => http.get('/tournament/options'),
+  list: () => http.get('/tournament/list'),
+  detail: (id) => http.get(`/tournament/${id}`),
+  create: (data) => http.post('/tournament/create', data),
+  addTeam: (id, data) => http.post(`/tournament/${id}/teams`, data),
+  updateTeam: (id, teamId, data) => http.post(`/tournament/${id}/teams/${teamId}`, data),
+  removeTeam: (id, teamId, data) => http.post(`/tournament/${id}/teams/${teamId}/remove`, data),
+  start: (id, data) => http.post(`/tournament/${id}/start`, data),
+  match: (matchId) => http.get(`/tournament/matches/${matchId}`),
+  recordArrow: (matchId, data) => http.post(`/tournament/matches/${matchId}/arrows`, data),
+  confirmEnd: (matchId, data) => http.post(`/tournament/matches/${matchId}/confirm-end`, data),
+  retractEnd: (matchId, data) => http.post(`/tournament/matches/${matchId}/retract-end`, data),
+  shootoffArrow: (matchId, data) => http.post(`/tournament/matches/${matchId}/shootoff/arrows`, data),
+  lockShootoff: (matchId, data) => http.post(`/tournament/matches/${matchId}/shootoff/lock`, data),
+  confirmWinner: (matchId, data) => http.post(`/tournament/matches/${matchId}/confirm-winner`, data)
+}
+
 export const statsApi = {
   board: () => http.get('/stats/board')
 }

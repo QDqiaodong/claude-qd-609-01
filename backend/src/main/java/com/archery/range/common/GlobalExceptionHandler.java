@@ -43,6 +43,14 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 越权操作：403 + 角色无权提示
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiResponse<Void>> handleForbidden(ForbiddenException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.fail(e.getMessage()));
+    }
+
+    /**
      * 唯一约束冲突：400（避免在页面上抛出非人话的外键报错）
      */
     @ExceptionHandler(DataIntegrityViolationException.class)

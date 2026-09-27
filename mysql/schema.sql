@@ -450,3 +450,168 @@ INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `statu
 INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `status`, `renter_id`, `renter_name`, `rented_at`) VALUES (10, 'E-GR-02', 'GEAR', 'Cartel', 15.00, 'RENTED', 5, '周然', '2026-09-22 15:45:00');
 INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `status`, `renter_id`, `renter_name`, `rented_at`) VALUES (11, 'E-AR-01', 'ARROW', 'Easton', 20.00, 'INSTOCK', NULL, NULL, NULL);
 INSERT INTO equipment (`id`, `equip_code`, `type`, `brand`, `rent_price`, `status`, `renter_id`, `renter_name`, `rented_at`) VALUES (12, 'E-AR-02', 'ARROW', 'Gold Tip', 18.00, 'INSTOCK', NULL, NULL, NULL);
+
+-- ================= 模块七：馆内团体淘汰赛计分台 =================
+-- 赛事：值班经理建立，选择 4 或 8 支队（每队固定三名现有会员），设置每场局数。
+-- 状态机 DRAFT 报名中（可换队/换队员）→ ONGOING 已开赛（队伍与对阵冻结）→ FINISHED 已完赛。
+CREATE TABLE IF NOT EXISTS tournament (
+  id              BIGINT      NOT NULL AUTO_INCREMENT,
+  name            VARCHAR(64) NOT NULL COMMENT '赛事名称',
+  team_size       INT         NOT NULL COMMENT '参赛队数：4 或 8',
+  ends_per_match  INT         NOT NULL COMMENT '每场局数（每局三名队员各射规定箭数）',
+  arrows_per_end  INT         NOT NULL COMMENT '每名队员每局规定箭数',
+  status          VARCHAR(16) NOT NULL COMMENT 'DRAFT 报名中 / ONGOING 进行中 / FINISHED 已完赛',
+  current_round   INT         NULL COMMENT '当前轮次：最早存在未确认场次的那一轮',
+  champion_team_id BIGINT     NULL COMMENT '冠军队',
+  created_by      VARCHAR(32) NOT NULL COMMENT '建立人（值班经理）',
+  created_at      DATETIME    NOT NULL,
+  started_at      DATETIME    NULL COMMENT '开赛时间（开赛即冻结队伍与对阵）',
+  finished_at     DATETIME    NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 参赛队：seed_no 为开赛后固定的种子位（决定首轮对阵与晋级走向）
+CREATE TABLE IF NOT EXISTS tournament_team (
+  id            BIGINT      NOT NULL AUTO_INCREMENT,
+  tournament_id BIGINT      NOT NULL,
+  team_name     VARCHAR(48) NOT NULL,
+  seed_no       INT         NULL COMMENT '种子位（开赛时按建队顺序固定，1..team_size）',
+  final_rank    INT         NULL COMMENT '最终名次（冠军=1）',
+  created_at    DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_team_tournament (tournament_id),
+  CONSTRAINT fk_team_tournament FOREIGN KEY (tournament_id) REFERENCES tournament (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 队-会员：一队固定三名会员；(tournament_id, member_id) 唯一，同一会员不能同时出现在两支队伍
+CREATE TABLE IF NOT EXISTS tournament_team_member (
+  id            BIGINT      NOT NULL AUTO_INCREMENT,
+  team_id       BIGINT      NOT NULL,
+  tournament_id BIGINT      NOT NULL,
+  member_id     BIGINT      NOT NULL,
+  position      INT         NOT NULL COMMENT '队内站位 0/1/2',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_team_member (team_id, member_id),
+  UNIQUE KEY uk_tournament_member (tournament_id, member_id),
+  KEY idx_tmem_member (member_id),
+  CONSTRAINT fk_tmem_team FOREIGN KEY (team_id) REFERENCES tournament_team (id) ON DELETE CASCADE,
+  CONSTRAINT fk_tmem_tournament FOREIGN KEY (tournament_id) REFERENCES tournament (id) ON DELETE CASCADE,
+  CONSTRAINT fk_tmem_member FOREIGN KEY (member_id) REFERENCES members (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 对阵场次：round_no 从 1 开始（1=首轮，越靠后越深），slot 为该轮场次序号。
+-- 首轮主客队直接落种子队；后续轮靠 home_from_match_id / away_from_match_id 指明晋级来源，
+-- 上一场确认胜者后由后端自动带入对应槽位（不靠前端拼接）。
+-- 状态 PENDING 待开赛 → ONGOING 进行中 → AWAIT_CONFIRM 待确认胜者 → CONFIRMED 已确认。
+-- 阶段 stage：REGULATION 规定局 / SHOOTOFF 加赛箭。
+CREATE TABLE IF NOT EXISTS tournament_match (
+  id                   BIGINT      NOT NULL AUTO_INCREMENT,
+  tournament_id        BIGINT      NOT NULL,
+  round_no             INT         NOT NULL,
+  slot                 INT         NOT NULL,
+  match_no             INT         NOT NULL COMMENT '场次号：全赛事按轮次统一编号',
+  home_team_id         BIGINT      NULL,
+  away_team_id         BIGINT      NULL,
+  winner_team_id       BIGINT      NULL,
+  status               VARCHAR(16) NOT NULL,
+  stage                VARCHAR(16) NOT NULL DEFAULT 'REGULATION',
+  home_score           INT         NOT NULL DEFAULT 0 COMMENT '规定局主队总分',
+  away_score           INT         NOT NULL DEFAULT 0,
+  home_x_count         INT         NOT NULL DEFAULT 0,
+  away_x_count         INT         NOT NULL DEFAULT 0,
+  shootoff_round_count INT         NOT NULL DEFAULT 0 COMMENT '已进行的加赛轮数',
+  home_from_match_id   BIGINT      NULL COMMENT '主队晋级来源场次',
+  away_from_match_id   BIGINT      NULL COMMENT '客队晋级来源场次',
+  confirmed_by         VARCHAR(32) NULL,
+  confirmed_at         DATETIME    NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_match_round_slot (tournament_id, round_no, slot),
+  KEY idx_match_tournament (tournament_id),
+  KEY idx_match_home_team (home_team_id),
+  KEY idx_match_away_team (away_team_id),
+  CONSTRAINT fk_match_tournament FOREIGN KEY (tournament_id) REFERENCES tournament (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 局：确认后不可改写；撤回即物理删除最后一局并在 tournament_log 留撤回人/时间/原因
+CREATE TABLE IF NOT EXISTS match_end (
+  id            BIGINT      NOT NULL AUTO_INCREMENT,
+  match_id      BIGINT      NOT NULL,
+  end_no        INT         NOT NULL COMMENT '局号，从 1 连续',
+  home_score    INT         NOT NULL,
+  away_score    INT         NOT NULL,
+  home_x_count  INT         NOT NULL,
+  away_x_count  INT         NOT NULL,
+  status        VARCHAR(12) NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT 录入中 / CONFIRMED 已确认',
+  confirmed_by  VARCHAR(32) NOT NULL,
+  confirmed_at  DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_match_end (match_id, end_no),
+  KEY idx_end_match (match_id),
+  CONSTRAINT fk_end_match FOREIGN KEY (match_id) REFERENCES tournament_match (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 局内箭值：唯一键 (end_id, member_id, shot_index)，未确认局可就地覆盖更正
+CREATE TABLE IF NOT EXISTS match_arrow (
+  id          BIGINT      NOT NULL AUTO_INCREMENT,
+  end_id      BIGINT      NOT NULL,
+  match_id    BIGINT      NOT NULL,
+  team_id     BIGINT      NOT NULL,
+  member_id   BIGINT      NOT NULL,
+  shot_index  INT         NOT NULL COMMENT '该局该队员第几支，0..arrows_per_end-1',
+  ring        VARCHAR(4)  NOT NULL COMMENT 'X/10..1/M',
+  ring_value  INT         NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_end_member_shot (end_id, member_id, shot_index),
+  KEY idx_arrow_match (match_id),
+  KEY idx_arrow_member (member_id),
+  CONSTRAINT fk_arrow_end FOREIGN KEY (end_id) REFERENCES match_end (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 加赛轮：一轮每名队员各射一支；先比加赛总分，再比 X 数，仍平则开下一轮
+CREATE TABLE IF NOT EXISTS shootoff_round (
+  id           BIGINT      NOT NULL AUTO_INCREMENT,
+  match_id     BIGINT      NOT NULL,
+  round_no     INT         NOT NULL COMMENT '加赛轮号，从 1 连续',
+  home_score   INT         NOT NULL DEFAULT 0,
+  away_score   INT         NOT NULL DEFAULT 0,
+  home_x_count INT         NOT NULL DEFAULT 0,
+  away_x_count INT         NOT NULL DEFAULT 0,
+  winner_team_id BIGINT    NULL COMMENT '本轮产生的胜者；NULL 表示仍平、需继续加赛',
+  status       VARCHAR(12) NOT NULL COMMENT 'DRAFT 录入中 / LOCKED 已锁定',
+  locked_by    VARCHAR(32) NULL,
+  locked_at    DATETIME    NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_shootoff_match_round (match_id, round_no),
+  KEY idx_shootoff_match (match_id),
+  CONSTRAINT fk_shootoff_match FOREIGN KEY (match_id) REFERENCES tournament_match (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS shootoff_arrow (
+  id          BIGINT      NOT NULL AUTO_INCREMENT,
+  round_id    BIGINT      NOT NULL,
+  match_id    BIGINT      NOT NULL,
+  team_id     BIGINT      NOT NULL,
+  member_id   BIGINT      NOT NULL,
+  ring        VARCHAR(4)  NOT NULL,
+  ring_value  INT         NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_shootoff_arrow (round_id, member_id),
+  KEY idx_soarrow_match (match_id),
+  CONSTRAINT fk_soarrow_round FOREIGN KEY (round_id) REFERENCES shootoff_round (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 完整操作轨迹：建队/换队/开赛/确认局/撤回局/锁定加赛轮/确认胜者等全程留痕
+CREATE TABLE IF NOT EXISTS tournament_log (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  tournament_id BIGINT       NOT NULL,
+  match_id      BIGINT       NULL,
+  action        VARCHAR(28)  NOT NULL,
+  operator      VARCHAR(32)  NOT NULL,
+  role          VARCHAR(16)  NOT NULL COMMENT 'MANAGER 值班经理 / REFEREE 裁判 / SYSTEM 系统',
+  detail        VARCHAR(500) NULL,
+  created_at    DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_tlog_tournament (tournament_id),
+  KEY idx_tlog_match (match_id),
+  CONSTRAINT fk_tlog_tournament FOREIGN KEY (tournament_id) REFERENCES tournament (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
